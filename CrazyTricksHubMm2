@@ -1,0 +1,1026 @@
+-- [[ CRAZY TRICKS HUB v16.0 - COMPLETE RAYFIELD ENGINE ]]
+-- Protected Fling, Anti-Fling, ESP Gun Drop, 40-Coin Auto Farm, Instant Gun Pickup
+-- Invisibility System (State Cache & Full Mesh Coverage)
+-- Added MM2 Utilities: Trap Bypass, Auto-Shoot on Range, Knife Throw Dodge
+-- NEW: Auto Shoot Murderer System (Works as Sheriff OR Hero, any gun skin)
+
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+-- Services
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local VirtualUser = game:GetService("VirtualUser")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- Global Configuration & States
+local Settings = {
+    -- Combat
+    SilentAim = true,
+    SilentKnife = true,
+    ShootDistance = 250,
+    AutoPickupGun = true,
+    AutoShootOnRange = false,
+    AutoShootMurderer = true, -- NEW: Auto Shoot Murderer (Sheriff/Hero any gun skin)
+    AutoShootDelay = 0.3,     -- NEW: safety delay between shots
+    
+    -- Visuals
+    RoleResolver = true,
+    ESPGunDrop = true,
+    
+    -- Farming
+    AutoFarmCoins = false,
+    FarmSpeed = 35,
+    
+    -- Stealth & Movement
+    StealthSpeed = false,
+    SpeedValue = 28,
+    StealthFly = false,
+    FlySpeed = 50,
+    Noclip = false,
+    Invisible = false,
+    KnifeDodge = false,
+    TrapBypass = false,
+    
+    -- Exploits
+    AntiFling = true,
+
+    -- Settings
+    AntiAFK = true,
+    FPSBooster = false
+}
+
+local Roles = {
+    Murderer = nil,
+    Sheriff = nil,
+    Hero = nil
+}
+
+local OriginalSheriffPlayer = nil
+local CurrentGunHolder = nil
+local Flying = false
+local LastRoundActiveState = false
+local TargetFlingPlayer = nil
+local SafePlatform = nil
+local IsEvacuated = false
+local IsPickingUpGun = false
+
+-- State Cache for Clean Invisibility Restore
+local InvisibilityCache = {}
+
+-- Notification Helper
+local function notify(title, text, duration)
+    Rayfield:Notify({
+        Title = title,
+        Content = text,
+        Duration = duration or 3,
+        Image = 4483362458
+    })
+end
+
+-- Create Main Window
+local Window = Rayfield:CreateWindow({
+   Name = "🔥 CRAZY TRICKS HUB v16.0 [FULL RAYFIELD EDITION]",
+   LoadingTitle = "Loading Crazy Tricks Engine...",
+   LoadingSubtitle = "Private Environment Test Build",
+   ConfigurationSaving = { Enabled = false },
+   Discord = { Enabled = false },
+   KeySystem = False
+})
+
+----------------------------------------------------
+-- HELPER FUNCTIONS & ENVIRONMENT DETECTION
+----------------------------------------------------
+local function IsAlive(player)
+    player = player or LocalPlayer
+    return player and player.Character and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 and player.Character:FindFirstChild("HumanoidRootPart")
+end
+
+local function IsPlayerInRoundMap(player)
+    if not IsAlive(player) then return false end
+    local lobby = Workspace:FindFirstChild("RegularLobby") or Workspace:FindFirstChild("Lobby")
+    local hrp = player.Character.HumanoidRootPart
+    
+    if lobby then
+        local lPos = lobby:IsA("Model") and lobby:GetPivot().Position or lobby.Position
+        return (hrp.Position - lPos).Magnitude > 220
+    end
+    return true
+end
+
+local function IsInRoundMap()
+    return IsPlayerInRoundMap(LocalPlayer)
+end
+
+local function HasGunTool(player)
+    if not IsAlive(player) then return false end
+    local bp = player:FindFirstChild("Backpack")
+    local char = player.Character
+    
+    if bp then
+        for _, tool in pairs(bp:GetChildren()) do
+            if tool:IsA("Tool") and (tool.Name == "Gun" or tool.Name:lower():find("gun")) then return true end
+        end
+    end
+    if char then
+        for _, tool in pairs(char:GetChildren()) do
+            if tool:IsA("Tool") and (tool.Name == "Gun" or tool.Name:lower():find("gun")) then return true end
+        end
+    end
+    return false
+end
+
+local function HasKnifeTool(player)
+    if not IsAlive(player) then return false end
+    local bp = player:FindFirstChild("Backpack")
+    local char = player.Character
+    
+    if bp then
+        for _, tool in pairs(bp:GetChildren()) do
+            if tool:IsA("Tool") and (tool.Name == "Knife" or tool.Name:lower():find("knife")) then return true end
+        end
+    end
+    if char then
+        for _, tool in pairs(char:GetChildren()) do
+            if tool:IsA("Tool") and (tool.Name == "Knife" or tool.Name:lower():find("knife")) then return true end
+        end
+    end
+    return false
+end
+
+----------------------------------------------------
+-- PERMANENT ANTI-FLING (PROTECTION VS CHEATERS)
+----------------------------------------------------
+RunService.Stepped:Connect(function()
+    if Settings.AntiFling then
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                for _, part in pairs(player.Character:GetChildren()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end
+    end
+end)
+
+----------------------------------------------------
+-- SUPER POWERFUL PROTECTED TARGET VOID FLING
+----------------------------------------------------
+local function powerfulVoidFling(targetPlayer)
+    if not targetPlayer or not IsAlive(targetPlayer) or not IsAlive(LocalPlayer) then 
+        notify("FLING ERROR", "Walang nahanap na valid target player!", 3)
+        return 
+    end
+    
+    local char = LocalPlayer.Character
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local targetChar = targetPlayer.Character
+    local targetHrp = targetChar:FindFirstChild("HumanoidRootPart")
+    
+    if not hrp or not targetHrp or not hum then return end
+    
+    local oldCFrame = hrp.CFrame
+    notify("🌀 POWER-FLING ACTIVATED", "Flinging " .. targetPlayer.Name .. " to Void...", 2)
+    
+    -- Anti-Self-Fling / Anti-Death Protections
+    hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+    hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+    
+    local startTime = tick()
+    local angle = 0
+    local connection
+    
+    connection = RunService.Heartbeat:Connect(function()
+        if (tick() - startTime > 1.8) or not IsAlive(targetPlayer) or not IsAlive(LocalPlayer) or not targetHrp.Parent then
+            connection:Disconnect()
+            
+            -- Reset physics and safely return to original position
+            hrp.Velocity = Vector3.zero
+            hrp.RotVelocity = Vector3.zero
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+            hrp.CFrame = oldCFrame
+            
+            hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
+            hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
+            notify("FLING COMPLETE", targetPlayer.Name .. " has been sent out of the map!", 3)
+            return
+        end
+        
+        angle = angle + 45
+        local offset = Vector3.new(math.cos(math.rad(angle)) * 0.8, 0, math.sin(math.rad(angle)) * 0.8)
+        
+        hrp.CanCollide = false
+        hrp.CFrame = CFrame.new(targetHrp.Position + offset, targetHrp.Position)
+        
+        -- Override target's kinetic movement to void
+        hrp.Velocity = Vector3.new(999999, 999999, 999999)
+        hrp.RotVelocity = Vector3.new(999999, 999999, 999999)
+        
+        targetHrp.AssemblyLinearVelocity = Vector3.new(999999, -999999, 999999)
+        targetHrp.AssemblyAngularVelocity = Vector3.new(999999, 999999, 999999)
+    end)
+end
+
+----------------------------------------------------
+-- PLAYER ROLE ESP & ESP GUN DROP
+----------------------------------------------------
+local function removeESP(player)
+    if player and player.Character then
+        local hl = player.Character:FindFirstChild("CrazyESP")
+        if hl then hl:Destroy() end
+        local head = player.Character:FindFirstChild("Head")
+        if head then
+            local bg = head:FindFirstChild("RoleTag")
+            if bg then bg:Destroy() end
+        end
+    end
+end
+
+local function applyESP(player, color, roleTitle)
+    if not player.Character or player == LocalPlayer then return end
+    local char = player.Character
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    
+    if not hum or hum.Health <= 0 then 
+        removeESP(player)
+        return 
+    end
+    
+    local hl = char:FindFirstChild("CrazyESP") or Instance.new("Highlight")
+    hl.Name = "CrazyESP"
+    hl.FillColor = color
+    hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+    hl.FillTransparency = 0.35
+    hl.Parent = char
+    
+    local head = char:FindFirstChild("Head")
+    if head then
+        local bg = head:FindFirstChild("RoleTag") or Instance.new("BillboardGui")
+        bg.Name = "RoleTag"
+        bg.Adornee = head
+        bg.Size = UDim2.new(0, 180, 0, 40)
+        bg.StudsOffset = Vector3.new(0, 3, 0)
+        bg.AlwaysOnTop = true
+        
+        local lbl = bg:FindFirstChild("RoleText") or Instance.new("TextLabel")
+        lbl.Name = "RoleText"
+        lbl.Size = UDim2.new(1, 0, 1, 0)
+        lbl.BackgroundTransparency = 1
+        
+        local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        local distStuds = (hrp and myHrp) and math.floor((myHrp.Position - hrp.Position).Magnitude) or 0
+        lbl.Text = string.format("%s\n@%s [%d studs]", roleTitle, player.Name, distStuds)
+        lbl.TextColor3 = color
+        lbl.Font = Enum.Font.GothamBold
+        lbl.TextSize = 13
+        lbl.TextStrokeTransparency = 0.2
+        lbl.Parent = bg
+        bg.Parent = head
+    end
+end
+
+local function scanRoles()
+    local roundActive = IsInRoundMap()
+    
+    if roundActive ~= LastRoundActiveState then
+        LastRoundActiveState = roundActive
+        if roundActive then
+            notify("🎮 ROUND STARTED", "Ina-analyze ang mga role...", 3)
+            OriginalSheriffPlayer = nil
+            CurrentGunHolder = nil
+            IsEvacuated = false
+        else
+            OriginalSheriffPlayer = nil
+            CurrentGunHolder = nil
+            IsEvacuated = false
+            if SafePlatform then SafePlatform:Destroy() SafePlatform = nil end
+        end
+    end
+    
+    Roles.Murderer = nil
+    Roles.Sheriff = nil
+    Roles.Hero = nil
+
+    for _, p in pairs(Players:GetPlayers()) do
+        if IsAlive(p) and IsPlayerInRoundMap(p) then
+            if HasKnifeTool(p) then Roles.Murderer = p end
+            if HasGunTool(p) then
+                if OriginalSheriffPlayer == nil then OriginalSheriffPlayer = p end
+                CurrentGunHolder = p
+            end
+        end
+    end
+    
+    if OriginalSheriffPlayer and IsAlive(OriginalSheriffPlayer) then Roles.Sheriff = OriginalSheriffPlayer end
+    if CurrentGunHolder and CurrentGunHolder ~= OriginalSheriffPlayer and IsAlive(CurrentGunHolder) then Roles.Hero = CurrentGunHolder end
+
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            if not IsAlive(p) then
+                applyESP(p, Color3.fromRGB(200, 200, 200), "⚪ UNASSIGNED (DEAD)")
+            elseif not IsPlayerInRoundMap(p) then
+                applyESP(p, Color3.fromRGB(200, 200, 200), "⚪ UNASSIGNED / LOBBY")
+            else
+                if p == Roles.Murderer then
+                    applyESP(p, Color3.fromRGB(255, 40, 40), "🔪 MURDERER")
+                elseif p == Roles.Sheriff then
+                    applyESP(p, Color3.fromRGB(40, 140, 255), "🔫 SHERIFF")
+                elseif p == Roles.Hero then
+                    applyESP(p, Color3.fromRGB(255, 215, 0), "🟡 HERO")
+                else
+                    applyESP(p, Color3.fromRGB(40, 255, 100), "😇 INNOCENT")
+                end
+            end
+        end
+    end
+end
+
+-- ESP Gun Drop System
+local function createGunDropESP(part)
+    if not Settings.ESPGunDrop or part:FindFirstChild("GunDropESP") then return end
+    
+    local hl = Instance.new("Highlight")
+    hl.Name = "GunDropESP"
+    hl.FillColor = Color3.fromRGB(255, 255, 0)
+    hl.OutlineColor = Color3.fromRGB(255, 0, 0)
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent = part
+    
+    local bg = Instance.new("BillboardGui")
+    bg.Name = "GunDropText"
+    bg.AlwaysOnTop = true
+    bg.Size = UDim2.new(0, 150, 0, 40)
+    bg.StudsOffset = Vector3.new(0, 3, 0)
+    
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, 0, 1, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = "🔫 DROPPED GUN"
+    lbl.TextColor3 = Color3.fromRGB(255, 230, 0)
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 14
+    lbl.TextStrokeTransparency = 0.2
+    lbl.Parent = bg
+    bg.Parent = part
+end
+
+local function scanGunDrops()
+    if not Settings.ESPGunDrop then return end
+    for _, obj in pairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and (obj.Name == "GunDrop" or obj.Name == "DroppedGun" or (obj.Name == "Gun" and not obj.Parent:IsA("Model") and not obj:IsA("Tool"))) then
+            createGunDropESP(obj)
+        end
+    end
+end
+
+Workspace.ChildAdded:Connect(function(child)
+    if child.Name == "GunDrop" or child.Name == "DroppedGun" or child.Name == "Gun" then
+        task.wait(0.1)
+        scanGunDrops()
+    end
+end)
+
+----------------------------------------------------
+-- INSTANT TOUCH AUTO PICKUP GUN
+----------------------------------------------------
+local function checkDroppedGun()
+    if not Settings.AutoPickupGun or IsPickingUpGun then return end
+    if not IsInRoundMap() or not IsAlive(LocalPlayer) then return end
+    
+    local myHrp = LocalPlayer.Character.HumanoidRootPart
+    for _, obj in pairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and (obj.Name == "GunDrop" or obj.Name == "DroppedGun" or (obj.Name == "Gun" and not obj:IsA("Tool"))) then
+            if (myHrp.Position - obj.Position).Magnitude <= 350 then
+                IsPickingUpGun = true
+                firetouchinterest(myHrp, obj, 0)
+                task.wait(0.01)
+                firetouchinterest(myHrp, obj, 1)
+                notify("🔫 INSTANT GUN PICKUP", "Nakuha agad ang dropped gun!", 2)
+                task.wait(0.2)
+                IsPickingUpGun = false
+                break
+            end
+        end
+    end
+end
+
+----------------------------------------------------
+-- COMBAT, AUTO-SHOOT & INSTANT KILL ALL
+----------------------------------------------------
+local function instantKillAll()
+    if not IsInRoundMap() or not IsAlive(LocalPlayer) then 
+        notify("KILL ALL ERROR", "Kailangan nasa active round map ka!", 3)
+        return 
+    end
+
+    local myChar = LocalPlayer.Character
+    local knife = nil
+    for _, item in pairs(myChar:GetChildren()) do
+        if item:IsA("Tool") and (item.Name == "Knife" or item.Name:lower():find("knife")) then knife = item break end
+    end
+    if not knife then
+        for _, item in pairs(LocalPlayer.Backpack:GetChildren()) do
+            if item:IsA("Tool") and (item.Name == "Knife" or item.Name:lower():find("knife")) then knife = item break end
+        end
+    end
+    
+    if not knife then
+        notify("MURDERER ONLY", "Kailangan may hawak kang Knife tool sa Backpack!", 3)
+        return
+    end
+    
+    if knife.Parent == LocalPlayer.Backpack then
+        myChar.Humanoid:EquipTool(knife)
+    end
+    
+    local blade = knife:FindFirstChild("Handle") or knife:FindFirstChild("Part") or myChar.HumanoidRootPart
+    local oldPos = myChar.HumanoidRootPart.CFrame
+    notify("⚡ INSTANT KILL ALL", "Executing Elimination Matrix...", 2)
+    
+    for _, victim in pairs(Players:GetPlayers()) do
+        if victim ~= LocalPlayer and IsAlive(victim) and IsPlayerInRoundMap(victim) then
+            local vHrp = victim.Character.HumanoidRootPart
+            myChar.HumanoidRootPart.CFrame = vHrp.CFrame * CFrame.new(0, 0, 1.2)
+            
+            task.wait(0.02)
+            knife:Activate()
+            firetouchinterest(blade, vHrp, 0)
+            firetouchinterest(blade, vHrp, 1)
+        end
+    end
+    
+    task.wait(0.1)
+    myChar.HumanoidRootPart.CFrame = oldPos
+end
+
+local function executeSilentCombat()
+    if not IsInRoundMap() or not IsAlive(LocalPlayer) then return end
+    local myChar = LocalPlayer.Character
+    local myHrp = myChar.HumanoidRootPart
+    
+    local gun = myChar:FindFirstChild("Gun")
+    if Settings.SilentAim and gun and Roles.Murderer and IsAlive(Roles.Murderer) then
+        local targetHead = Roles.Murderer.Character:FindFirstChild("Head") or Roles.Murderer.Character.HumanoidRootPart
+        if (myHrp.Position - targetHead.Position).Magnitude <= Settings.ShootDistance then
+            myHrp.CFrame = CFrame.new(myHrp.Position, Vector3.new(targetHead.Position.X, myHrp.Position.Y, targetHead.Position.Z))
+            gun:Activate()
+        end
+    end
+    
+    local knife = myChar:FindFirstChild("Knife")
+    if Settings.SilentKnife and knife then
+        local closestTarget = nil
+        local closestDist = math.huge
+        
+        for _, victim in pairs(Players:GetPlayers()) do
+            if victim ~= LocalPlayer and IsAlive(victim) and IsPlayerInRoundMap(victim) then
+                local vHead = victim.Character:FindFirstChild("Head") or victim.Character.HumanoidRootPart
+                local dist = (myHrp.Position - vHead.Position).Magnitude
+                if dist < closestDist and dist <= Settings.ShootDistance then
+                    closestDist = dist
+                    closestTarget = vHead
+                end
+            end
+        end
+        
+        if closestTarget then
+            myHrp.CFrame = CFrame.new(myHrp.Position, Vector3.new(closestTarget.Position.X, myHrp.Position.Y, closestTarget.Position.Z))
+            knife:Activate()
+        end
+    end
+end
+
+-- Auto-Shoot on Murderer Range
+local function handleAutoShoot()
+    if Settings.AutoShootOnRange and IsInRoundMap() and IsAlive(LocalPlayer) and Roles.Murderer and IsAlive(Roles.Murderer) then
+        local char = LocalPlayer.Character
+        local gun = char:FindFirstChild("Gun")
+        if gun then
+            local myHrp = char.HumanoidRootPart
+            local mHrp = Roles.Murderer.Character.HumanoidRootPart
+            local dist = (myHrp.Position - mHrp.Position).Magnitude
+            if dist <= Settings.ShootDistance then
+                myHrp.CFrame = CFrame.new(myHrp.Position, Vector3.new(mHrp.Position.X, myHrp.Position.Y, mHrp.Position.Z))
+                gun:Activate()
+            end
+        end
+    end
+end
+
+----------------------------------------------------
+-- NEW: AUTO SHOOT MURDERER SYSTEM (SHERIFF / HERO)
+----------------------------------------------------
+-- Gumagana kapag IKAW ang Sheriff o Hero (may gun tool, kahit anong skin),
+-- at may detected na Murderer sa round. Automatic equip + aim + shoot.
+
+local LastAutoShotTime = 0
+
+-- Kunin ang gun tool mo kahit anong skin (Character muna, tapos Backpack)
+local function getLocalGunTool()
+    local char = LocalPlayer.Character
+    if not char then return nil end
+    for _, tool in pairs(char:GetChildren()) do
+        if tool:IsA("Tool") and tool.Name:lower():find("gun") then
+            return tool
+        end
+    end
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if bp then
+        for _, tool in pairs(bp:GetChildren()) do
+            if tool:IsA("Tool") and tool.Name:lower():find("gun") then
+                return tool
+            end
+        end
+    end
+    return nil
+end
+
+-- Check kung ikaw ang Sheriff o Hero (may gun ka sa round)
+local function isLocalSheriffOrHero()
+    if not IsInRoundMap() or not IsAlive(LocalPlayer) then return false end
+    if not HasGunTool(LocalPlayer) then return false end
+    -- Kung may gun ka sa round map at hindi ikaw ang murderer, gun holder ka (Sheriff o Hero)
+    if HasKnifeTool(LocalPlayer) then return false end
+    return true
+end
+
+local function handleAutoShootMurderer()
+    if not Settings.AutoShootMurderer then return end
+    if not isLocalSheriffOrHero() then return end
+    if not Roles.Murderer or not IsAlive(Roles.Murderer) then return end
+    
+    local char = LocalPlayer.Character
+    if not char then return end
+    local myHrp = char:FindFirstChild("HumanoidRootPart")
+    if not myHrp then return end
+    
+    local mHrp = Roles.Murderer.Character:FindFirstChild("HumanoidRootPart")
+    if not mHrp then return end
+    
+    local dist = (myHrp.Position - mHrp.Position).Magnitude
+    if dist > Settings.ShootDistance then return end
+    
+    -- Safety delay para hindi ma-flag ng anti-cheat (walang spam-shoot)
+    if tick() - LastAutoShotTime < Settings.AutoShootDelay then return end
+    
+    local gun = getLocalGunTool()
+    if not gun then return end
+    
+    -- I-equip muna kung nasa Backpack
+    if gun.Parent ~= char then
+        char.Humanoid:EquipTool(gun)
+        task.wait(0.05)
+    end
+    
+    -- Aim sa Murderer (head level para accurate)
+    local targetPos = Roles.Murderer.Character:FindFirstChild("Head") and Roles.Murderer.Character.Head.Position or mHrp.Position
+    myHrp.CFrame = CFrame.new(myHrp.Position, Vector3.new(targetPos.X, myHrp.Position.Y, targetPos.Z))
+    
+    gun:Activate()
+    LastAutoShotTime = tick()
+end
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.Q or input.KeyCode == Enum.KeyCode.E or input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        executeSilentCombat()
+    end
+end)
+
+----------------------------------------------------
+-- AUTO FARM 40 COINS + SKY PLATFORM TWEEN
+----------------------------------------------------
+local function getCoinCount()
+    local coinData = LocalPlayer:FindFirstChild("CoinData") or LocalPlayer:FindFirstChild("leaderstats") or LocalPlayer:FindFirstChild("PlayerStats")
+    if coinData then
+        local c = coinData:FindFirstChild("Coins") or coinData:FindFirstChild("Coin")
+        if c then return c.Value end
+    end
+    return 0
+end
+
+local function spawnSafePlatformAndEvacuate()
+    if IsEvacuated then return end
+    IsEvacuated = true
+    local myHrp = LocalPlayer.Character.HumanoidRootPart
+    
+    if not SafePlatform or not SafePlatform.Parent then
+        SafePlatform = Instance.new("Part")
+        SafePlatform.Name = "CrazySafePlatform"
+        SafePlatform.Size = Vector3.new(40, 3, 40)
+        SafePlatform.Position = Vector3.new(myHrp.Position.X, myHrp.Position.Y + 350, myHrp.Position.Z)
+        SafePlatform.Anchored = true
+        SafePlatform.CanCollide = true
+        SafePlatform.Material = Enum.Material.Neon
+        SafePlatform.Color = Color3.fromRGB(0, 255, 120)
+        SafePlatform.Parent = Workspace
+    end
+    
+    myHrp.CFrame = SafePlatform.CFrame * CFrame.new(0, 5, 0)
+    notify("🪙 40 COINS REACHED!", "Naka-evacuate ka na sa Safe Sky Platform!", 4)
+end
+
+local function getTargetCoin()
+    for _, obj in pairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and (obj.Name == "Coin" or obj.Name == "CoinServer" or obj.Name == "MainCoin") then
+            if obj.Transparency < 0.8 then return obj end
+        end
+    end
+    return nil
+end
+
+task.spawn(function()
+    while task.wait(0.1) do
+        if Settings.AutoFarmCoins and not IsPickingUpGun and IsInRoundMap() and IsAlive(LocalPlayer) then
+            if not IsEvacuated then
+                if getCoinCount() >= 40 then
+                    spawnSafePlatformAndEvacuate()
+                else
+                    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                    local coin = getTargetCoin()
+                    if hrp and coin then
+                        local dist = (hrp.Position - coin.Position).Magnitude
+                        local tweenInfo = TweenInfo.new(math.clamp(dist / Settings.FarmSpeed, 0.05, 3), Enum.EasingStyle.Linear)
+                        local tw = TweenService:Create(hrp, tweenInfo, {CFrame = coin.CFrame})
+                        tw:Play()
+                        tw.Completed:Wait()
+                        firetouchinterest(hrp, coin, 0)
+                        firetouchinterest(hrp, coin, 1)
+                    end
+                end
+            end
+        end
+    end
+end)
+
+----------------------------------------------------
+-- MOVEMENT, INVISIBILITY (STATE CACHE FIX) & MM2 UTILITIES
+----------------------------------------------------
+local function toggleFly()
+    Flying = not Flying
+    notify("FLY STATUS", Flying and "Fly Activated" or "Fly Deactivated", 2)
+end
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if not gpe and input.KeyCode == Enum.KeyCode.E and Settings.StealthFly then
+        toggleFly()
+    end
+end)
+
+-- State Cache Invisibility System
+local function applyInvisibility(char, enable)
+    if enable then
+        for _, obj in pairs(char:GetDescendants()) do
+            if obj:IsA("BasePart") or obj:IsA("Decal") or obj:IsA("Texture") then
+                if InvisibilityCache[obj] == nil then
+                    InvisibilityCache[obj] = {
+                        Transparency = obj.Transparency,
+                        LocalTransparencyModifier = obj:IsA("BasePart") and obj.LocalTransparencyModifier or nil
+                    }
+                end
+                obj.Transparency = 1
+                if obj:IsA("BasePart") then obj.LocalTransparencyModifier = 1 end
+            elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") or obj:IsA("Fire") or obj:IsA("Smoke") then
+                if InvisibilityCache[obj] == nil then
+                    InvisibilityCache[obj] = { Enabled = obj.Enabled }
+                end
+                obj.Enabled = false
+            end
+        end
+    else
+        for obj, state in pairs(InvisibilityCache) do
+            if obj and obj.Parent then
+                if state.Transparency ~= nil then obj.Transparency = state.Transparency end
+                if state.LocalTransparencyModifier ~= nil and obj:IsA("BasePart") then 
+                    obj.LocalTransparencyModifier = state.LocalTransparencyModifier 
+                end
+                if state.Enabled ~= nil then obj.Enabled = state.Enabled end
+            end
+        end
+        table.clear(InvisibilityCache)
+    end
+end
+
+-- Trap Bypass & Knife Throw Dodge
+local function handleMM2Utilities()
+    if not IsAlive(LocalPlayer) then return end
+    local char = LocalPlayer.Character
+    local hrp = char.HumanoidRootPart
+
+    -- Trap Bypass
+    if Settings.TrapBypass then
+        for _, obj in pairs(Workspace:GetDescendants()) do
+            if obj:IsA("BasePart") and (obj.Name:lower():find("trap") or obj.Name:lower():find("bear")) then
+                if (hrp.Position - obj.Position).Magnitude <= 12 then
+                    obj.CanCollide = false
+                end
+            end
+        end
+    end
+
+    -- Knife Throw Dodge
+    if Settings.KnifeDodge and Roles.Murderer and IsAlive(Roles.Murderer) then
+        for _, proj in pairs(Workspace:GetChildren()) do
+            if proj:IsA("BasePart") and (proj.Name == "FlyingKnife" or proj.Name == "Knife" or proj.Name:lower():find("knife")) then
+                local dist = (hrp.Position - proj.Position).Magnitude
+                if dist <= 20 then
+                    local hum = char:FindFirstChildOfClass("Humanoid")
+                    if hum and hum.FloorMaterial ~= Enum.Material.Air then
+                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                        hrp.CFrame = hrp.CFrame * CFrame.new(math.random(-5, 5), 0, -3)
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function handleMovementAndInvisibility()
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    local hrp = char.HumanoidRootPart
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    
+    -- Invisibility System Integration
+    applyInvisibility(char, Settings.Invisible)
+    
+    if Settings.StealthSpeed and hum then 
+        hum.WalkSpeed = Settings.SpeedValue 
+    else
+        if hum and hum.WalkSpeed ~= 16 then hum.WalkSpeed = 16 end
+    end
+    
+    if Settings.Noclip then
+        for _, p in pairs(char:GetChildren()) do
+            if p:IsA("BasePart") then p.CanCollide = false end
+        end
+    end
+    
+    if Settings.StealthFly and Flying then
+        local cam = Workspace.CurrentCamera
+        local flyDir = Vector3.zero
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then flyDir = flyDir + cam.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then flyDir = flyDir - cam.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then flyDir = flyDir - cam.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then flyDir = flyDir + cam.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then flyDir = flyDir + Vector3.new(0, 1, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then flyDir = flyDir - Vector3.new(0, 1, 0) end
+        
+        hrp.Velocity = Vector3.zero
+        hrp.CFrame = hrp.CFrame + (flyDir * (Settings.FlySpeed / 50))
+    end
+end
+
+----------------------------------------------------
+-- SETTINGS FEATURES (ANTI-AFK & FPS BOOST)
+----------------------------------------------------
+LocalPlayer.Idled:Connect(function()
+    if Settings.AntiAFK then
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.new(0, 0))
+    end
+end)
+
+local function applyFPSBoost()
+    settings().Rendering.QualityLevel = 1
+    Workspace.Lighting.GlobalShadows = false
+    
+    for _, obj in pairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            obj.Material = Enum.Material.SmoothPlastic
+            obj.Reflectance = 0
+            obj.CastShadow = false
+        elseif obj:IsA("Decal") or obj:IsA("Texture") or obj:IsA("SurfaceAppearance") then
+            obj:Destroy()
+        elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke") or obj:IsA("Fire") then
+            obj.Enabled = false
+        end
+    end
+    notify("FPS BOOST APPLIED", "Na-optimize na ang lahat ng textures!", 3)
+end
+
+----------------------------------------------------
+-- RAYFIELD TABS & INTERFACE BINDING
+----------------------------------------------------
+local CombatTab = Window:CreateTab("⚔️ Combat", 4483362458)
+local VisualsTab = Window:CreateTab("👁 Visuals", 4483362458)
+local ExploitsTab = Window:CreateTab("🌀 Exploits", 4483362458)
+local FarmTab = Window:CreateTab("🪙 Farming", 4483362458)
+local StealthTab = Window:CreateTab("🚀 Stealth", 4483362458)
+local SettingsTab = Window:CreateTab("⚙️ Settings", 4483362458)
+
+-- 1. COMBAT TAB
+CombatTab:CreateButton({
+   Name = "⚡ Instant Auto Kill All (Murderer + Knife)",
+   Callback = function() instantKillAll() end,
+})
+
+CombatTab:CreateToggle({
+   Name = "Accurate Silent Aim (Gun)",
+   CurrentValue = Settings.SilentAim,
+   Callback = function(Value) Settings.SilentAim = Value end,
+})
+
+CombatTab:CreateToggle({
+   Name = "Accurate Silent Throw Knife",
+   CurrentValue = Settings.SilentKnife,
+   Callback = function(Value) Settings.SilentKnife = Value end,
+})
+
+CombatTab:CreateToggle({
+   Name = "Auto-Shoot Gun on Murderer Range",
+   CurrentValue = Settings.AutoShootOnRange,
+   Callback = function(Value) Settings.AutoShootOnRange = Value end,
+})
+
+CombatTab:CreateToggle({
+   Name = "🎯 Auto Shoot Murderer (Sheriff/Hero - Any Gun Skin)",
+   CurrentValue = Settings.AutoShootMurderer,
+   Callback = function(Value) Settings.AutoShootMurderer = Value end,
+})
+
+CombatTab:CreateToggle({
+   Name = "Instant Touch Gun Pickup (Fast Auto Pickup)",
+   CurrentValue = Settings.AutoPickupGun,
+   Callback = function(Value) Settings.AutoPickupGun = Value end,
+})
+
+CombatTab:CreateSlider({
+   Name = "Silent Aim / Knife Max Distance",
+   Range = {50, 350},
+   Increment = 10,
+   Suffix = "Studs",
+   CurrentValue = Settings.ShootDistance,
+   Callback = function(Value) Settings.ShootDistance = Value end,
+})
+
+-- 2. VISUALS TAB
+VisualsTab:CreateToggle({
+   Name = "Player Role ESP (Sheriff vs Hero Fixed)",
+   CurrentValue = Settings.RoleResolver,
+   Callback = function(Value) Settings.RoleResolver = Value end,
+})
+
+VisualsTab:CreateToggle({
+   Name = "ESP Gun Drop (Highlight & Distance Tag)",
+   CurrentValue = Settings.ESPGunDrop,
+   Callback = function(Value) Settings.ESPGunDrop = Value end,
+})
+
+-- 3. EXPLOITS TAB
+local playerDropdown = ExploitsTab:CreateDropdown({
+   Name = "Select Target Player to Fling",
+   Options = {"Scanning..."},
+   CurrentOption = "",
+   Callback = function(Option)
+      TargetFlingPlayer = Players:FindFirstChild(Option[1] or Option)
+   end,
+})
+
+task.spawn(function()
+    while task.wait(2) do
+        local plrs = {}
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then table.insert(plrs, p.Name) end
+        end
+        playerDropdown:Refresh(plrs)
+    end
+end)
+
+ExploitsTab:CreateButton({
+   Name = "🌀 Powerful Protected Void Fling (Selected Target)",
+   Callback = function() powerfulVoidFling(TargetFlingPlayer) end,
+})
+
+ExploitsTab:CreateButton({
+   Name = "🌀 Powerful Protected Void Fling (Sheriff)",
+   Callback = function() powerfulVoidFling(Roles.Sheriff) end,
+})
+
+ExploitsTab:CreateButton({
+   Name = "🌀 Powerful Protected Void Fling (Murderer)",
+   Callback = function() powerfulVoidFling(Roles.Murderer) end,
+})
+
+ExploitsTab:CreateToggle({
+   Name = "Permanent Anti-Fling Protection",
+   CurrentValue = Settings.AntiFling,
+   Callback = function(Value) Settings.AntiFling = Value end,
+})
+
+-- 4. FARMING TAB
+FarmTab:CreateToggle({
+   Name = "Auto Farm 40 Coins & Sky Evacuate Tween",
+   CurrentValue = Settings.AutoFarmCoins,
+   Callback = function(Value) Settings.AutoFarmCoins = Value end,
+})
+
+FarmTab:CreateSlider({
+   Name = "Tween Farm Speed",
+   Range = {10, 60},
+   Increment = 2,
+   Suffix = "Studs/Sec",
+   CurrentValue = Settings.FarmSpeed,
+   Callback = function(Value) Settings.FarmSpeed = Value end,
+})
+
+-- 5. STEALTH TAB
+StealthTab:CreateToggle({
+   Name = "Full Character & Tool Invisibility",
+   CurrentValue = Settings.Invisible,
+   Callback = function(Value) 
+       Settings.Invisible = Value 
+       if not Value and LocalPlayer.Character then
+           applyInvisibility(LocalPlayer.Character, false)
+       end
+   end,
+})
+
+StealthTab:CreateToggle({
+   Name = "Murderer Trap Bypass / Anti-Stepping",
+   CurrentValue = Settings.TrapBypass,
+   Callback = function(Value) Settings.TrapBypass = Value end,
+})
+
+StealthTab:CreateToggle({
+   Name = "Auto Knife Throw Dodge / Jump",
+   CurrentValue = Settings.KnifeDodge,
+   Callback = function(Value) Settings.KnifeDodge = Value end,
+})
+
+StealthTab:CreateToggle({
+   Name = "Speed Hack Toggle",
+   CurrentValue = Settings.StealthSpeed,
+   Callback = function(Value) Settings.StealthSpeed = Value end,
+})
+
+StealthTab:CreateSlider({
+   Name = "Adjust WalkSpeed",
+   Range = {16, 120},
+   Increment = 2,
+   Suffix = "Speed",
+   CurrentValue = Settings.SpeedValue,
+   Callback = function(Value) Settings.SpeedValue = Value end,
+})
+
+StealthTab:CreateToggle({
+   Name = "Stealth Fly Toggle [Key E]",
+   CurrentValue = Settings.StealthFly,
+   Callback = function(Value) 
+       Settings.StealthFly = Value 
+       if not Value then Flying = false end
+   end,
+})
+
+StealthTab:CreateSlider({
+   Name = "Fly Speed",
+   Range = {20, 150},
+   Increment = 5,
+   Suffix = "Speed",
+   CurrentValue = Settings.FlySpeed,
+   Callback = function(Value) Settings.FlySpeed = Value end,
+})
+
+StealthTab:CreateToggle({
+   Name = "Noclip Walls Bypass",
+   CurrentValue = Settings.Noclip,
+   Callback = function(Value) Settings.Noclip = Value end,
+})
+
+-- 6. SETTINGS TAB
+SettingsTab:CreateToggle({
+   Name = "Anti-AFK Protection (Prevents Idle Kick)",
+   CurrentValue = Settings.AntiAFK,
+   Callback = function(Value) Settings.AntiAFK = Value end,
+})
+
+SettingsTab:CreateButton({
+   Name = "🚀 Ultra FPS Boost (Detailed Texture Cleaner)",
+   Callback = function() 
+       Settings.FPSBooster = true 
+       applyFPSBoost() 
+   end,
+})
+
+notify("SYSTEM READY", "Crazy Tricks Hub v16.0 Fully Initialized!", 4)
+
+----------------------------------------------------
+-- MAIN RENDER LOOP
+----------------------------------------------------
+RunService.RenderStepped:Connect(function()
+    if Settings.RoleResolver then scanRoles() end
+    if Settings.ESPGunDrop then scanGunDrops() end
+    checkDroppedGun()
+    handleAutoShoot()
+    handleAutoShootMurderer() -- NEW: Auto Shoot Murderer System
+    handleMM2Utilities()
+    handleMovementAndInvisibility()
+end)
